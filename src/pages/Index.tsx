@@ -1,14 +1,20 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+
+import { useAuth } from "@/contexts/AuthContext";
+import { LoginForm } from "@/components/LoginForm";
+import { Layout } from "@/components/Layout";
 
 const Index = () => {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  return user ? <Layout /> : <LoginForm />;
 };
 
 export default Index;
