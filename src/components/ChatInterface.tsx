@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -123,8 +122,9 @@ export function ChatInterface() {
         break;
 
       case 'workType':
-        const workType = userInput.toLowerCase().includes('billable') ? 'billable' : 
-                         userInput.toLowerCase().includes('non-billable') ? 'non_billable' : 'personal';
+        const workType: 'billable' | 'non_billable' | 'personal' = 
+          userInput.toLowerCase().includes('billable') ? 'billable' : 
+          userInput.toLowerCase().includes('non-billable') ? 'non_billable' : 'personal';
         
         const newTimeEntry = { ...timeEntry, workType };
         setConversationState({
