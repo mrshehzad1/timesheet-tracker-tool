@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,7 +5,7 @@ import { Card } from '@/components/ui/card';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Send, Mic, MicOff, User, Bot } from 'lucide-react';
+import { Send, Mic, MicOff, User, Bot, MessageSquare } from 'lucide-react';
 import { OpenAIService } from '@/services/openai';
 
 export interface TimeEntry {
@@ -35,6 +34,12 @@ interface ChatMessage {
   content: string;
 }
 
+interface ChatSession {
+  messages: Message[];
+  chatHistory: ChatMessage[];
+  timestamp: number;
+}
+
 export function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -48,13 +53,72 @@ export function ChatInterface() {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const openaiServiceRef = useRef<OpenAIService>(new OpenAIService());
 
+  const STORAGE_KEY = `chat_session_${user?.id || 'anonymous'}`;
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   useEffect(() => {
-    initializeChat();
+    loadChatSession();
   }, []);
+
+  // Save chat session to localStorage whenever state changes
+  useEffect(() => {
+    if (messages.length > 0 || chatHistory.length > 0) {
+      saveChatSession();
+    }
+  }, [messages, chatHistory]);
+
+  const saveChatSession = () => {
+    const session: ChatSession = {
+      messages,
+      chatHistory,
+      timestamp: Date.now()
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  };
+
+  const loadChatSession = () => {
+    try {
+      const savedSession = localStorage.getItem(STORAGE_KEY);
+      if (savedSession) {
+        const session: ChatSession = JSON.parse(savedSession);
+        // Convert timestamp strings back to Date objects
+        const messagesWithDates = session.messages.map(msg => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }));
+        setMessages(messagesWithDates);
+        setChatHistory(session.chatHistory);
+        
+        // If we have an existing session, don't initialize a new one
+        if (session.messages.length > 0) {
+          return;
+        }
+      }
+    } catch (error) {
+      console.error('Error loading chat session:', error);
+    }
+    
+    // Initialize new chat if no session exists
+    initializeChat();
+  };
+
+  const startNewChat = () => {
+    // Clear current session
+    setMessages([]);
+    setChatHistory([]);
+    localStorage.removeItem(STORAGE_KEY);
+    
+    // Initialize new chat
+    initializeChat();
+    
+    toast({
+      title: "New Chat Started",
+      description: "Your previous conversation has been cleared.",
+    });
+  };
 
   const initializeChat = async () => {
     const systemPrompt = openaiServiceRef.current.getSystemPrompt();
@@ -242,6 +306,20 @@ export function ChatInterface() {
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
+      {/* Header with New Chat button */}
+      <div className="p-4 bg-white border-b flex justify-between items-center">
+        <h2 className="text-lg font-semibold text-gray-800">Time Tracking Assistant</h2>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={startNewChat}
+          className="flex items-center space-x-2"
+        >
+          <MessageSquare className="h-4 w-4" />
+          <span>New Chat</span>
+        </Button>
+      </div>
+
       {/* Chat Messages */}
       <div className="flex-1 overflow-auto p-4 space-y-4">
         {messages.map((message) => (
