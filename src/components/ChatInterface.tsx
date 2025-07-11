@@ -176,6 +176,147 @@ export function ChatInterface() {
     addMessage(content, 'user');
   };
 
+  const extractTimeEntryFromChat = (): Partial<TimeEntry> | null => {
+    try {
+      // Look for the final confirmation message that contains structured data
+      const chatContent = chatHistory.map(msg => msg.content).join('\n');
+      
+      // Extract task description
+      const taskMatch = chatContent.match(/Task:\s*([^\n]+)/i);
+      const taskDescription = taskMatch ? taskMatch[1].trim() : 'Task from chat';
+      
+      // Extract duration - look for various formats
+      const durationMatches = [
+        chatContent.match(/Duration:\s*(\d+)\s*hours?/i),
+        chatContent.match(/Duration:\s*(\d+)\s*minutes?/i),
+        chatContent.match(/Duration:\s*(\d+)h/i),
+        chatContent.match(/(\d+)\s*hours?/i),
+        chatContent.match(/(\d+)\s*minutes?/i)
+      ];
+      
+      let durationMinutes = 30; // default
+      for (const match of durationMatches) {
+        if (match) {
+          const value = parseInt(match[1]);
+          if (match[0].toLowerCase().includes('hour')) {
+            durationMinutes = value * 60;
+          } else {
+            durationMinutes = value;
+          }
+          break;
+        }
+      }
+      
+      // Extract work type
+      let workType: 'billable' | 'non_billable' | 'personal' = 'billable';
+      if (chatContent.toLowerCase().includes('non-billable') || chatContent.toLowerCase().includes('non billable')) {
+        workType = 'non_billable';
+      } else if (chatContent.toLowerCase().includes('personal')) {
+        workType = 'personal';
+      }
+      
+      // Extract matter/client for billable work
+      let matterName = undefined;
+      const matterMatch = chatContent.match(/(?:Matter|Client):\s*([^\n]+)/i);
+      if (matterMatch && workType === 'billable') {
+        matterName = matterMatch[1].trim();
+      }
+      
+      // Extract cost centre for billable work
+      let costCentreName = undefined;
+      const costCentreMatch = chatContent.match(/Cost Centre:\s*([^\n]+)/i);
+      if (costCentreMatch && workType === 'billable') {
+        costCentreName = costCentreMatch[1].trim();
+      }
+      
+      // Extract business area for non-billable work
+      let businessAreaName = undefined;
+      const businessAreaMatch = chatContent.match(/Business Area:\s*([^\n]+)/i);
+      if (businessAreaMatch && workType === 'non_billable') {
+        businessAreaName = businessAreaMatch[1].trim();
+      }
+      
+      // Extract subcategory for non-billable work
+      let subcategoryName = undefined;
+      const subcategoryMatch = chatContent.match(/Subcategory:\s*([^\n]+)/i);
+      if (subcategoryMatch && workType === 'non_billable') {
+        subcategoryName = subcategoryMatch[1].trim();
+      }
+      
+      // Extract enjoyment level
+      let enjoymentLevel = undefined;
+      const enjoymentPatterns = [
+        /Enjoyment Level:\s*([^\n]+)/i,
+        /(Love it|Like it|Hate it).*?(Great at it|Good at it|Bad at it)/i
+      ];
+      for (const pattern of enjoymentPatterns) {
+        const match = chatContent.match(pattern);
+        if (match) {
+          enjoymentLevel = match[1].trim();
+          break;
+        }
+      }
+      
+      // Extract energy impact
+      let energyImpact = undefined;
+      const energyPatterns = [
+        /Energy Impact:\s*([^\n]+)/i,
+        /(Energy Gain|Energy Drain|Energy Neutral)/i
+      ];
+      for (const pattern of energyPatterns) {
+        const match = chatContent.match(pattern);
+        if (match) {
+          energyImpact = match[1].trim();
+          break;
+        }
+      }
+      
+      // Extract task goal
+      let taskGoal = undefined;
+      const goalPatterns = [
+        /Future Goal:\s*([^\n]+)/i,
+        /(Delegate it to AI|Delegate it to another person|Transfer it to someone|Retain it)/i
+      ];
+      for (const pattern of goalPatterns) {
+        const match = chatContent.match(pattern);
+        if (match) {
+          taskGoal = match[1].trim();
+          break;
+        }
+      }
+      
+      console.log('Extracted time entry data:', {
+        taskDescription,
+        durationMinutes,
+        workType,
+        matterName,
+        costCentreName,
+        businessAreaName,
+        subcategoryName,
+        enjoymentLevel,
+        energyImpact,
+        taskGoal
+      });
+      
+      return {
+        taskDescription,
+        durationMinutes,
+        startTime: new Date().toISOString(),
+        workType,
+        matterName,
+        costCentreName,
+        businessAreaName,
+        subcategoryName,
+        enjoymentLevel,
+        energyImpact,
+        taskGoal
+      };
+    } catch (error) {
+      console.error('Error extracting time entry data:', error);
+      return null;
+    }
+  };
+
   const processUserInput = async (input: string) => {
     addUserMessage(input);
     setIsLoading(true);
@@ -190,7 +331,20 @@ export function ChatInterface() {
       setChatHistory([...newChatHistory, { role: 'assistant', content: aiResponse }]);
 
       // Check if the response indicates completion and extract time entry data
-      if (aiResponse.toLowerCase().includes('save') && aiResponse.toLowerCase().includes('timesheet')) {
+      const completionKeywords = [
+        'save this to your timesheet',
+        'updating your timesheet',
+        'time entry has been saved',
+        'save to timesheet',
+        'log this entry'
+      ];
+      
+      const shouldSave = completionKeywords.some(keyword => 
+        aiResponse.toLowerCase().includes(keyword.toLowerCase())
+      );
+
+      if (shouldSave) {
+        console.log('Detected completion signal, attempting to save time entry');
         handleTimeEntryCompletion();
       }
     } catch (error) {
@@ -207,47 +361,73 @@ export function ChatInterface() {
   };
 
   const handleTimeEntryCompletion = async () => {
-    // Extract time entry data from chat history for webhook
-    const timeEntry: Partial<TimeEntry> = {
-      taskDescription: "Task from chat",
-      durationMinutes: 30,
-      startTime: new Date().toISOString(),
-      workType: 'billable' as 'billable' | 'non_billable' | 'personal'
-    };
+    console.log('Starting time entry completion process');
+    
+    // Extract time entry data from chat history
+    const timeEntry = extractTimeEntryFromChat();
+    
+    if (!timeEntry) {
+      console.error('Failed to extract time entry data from chat');
+      toast({
+        title: "Error",
+        description: "Failed to extract time entry data. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
       const webhookPayload = {
         user_id: user?.id,
-        user_name: user?.name,
+        user_name: user?.name || user?.email,
         user_email: user?.email,
         timestamp: new Date().toISOString(),
         time_entry: timeEntry
       };
 
+      console.log('Webhook payload:', webhookPayload);
+
       if (config.webhook.isEnabled && config.webhook.url) {
+        console.log('Sending webhook to:', config.webhook.url);
+        
         const response = await fetch(config.webhook.url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${config.webhook.apiKey}`
+            ...(config.webhook.apiKey && { 'Authorization': `Bearer ${config.webhook.apiKey}` })
           },
           body: JSON.stringify(webhookPayload)
         });
 
+        console.log('Webhook response status:', response.status);
+        console.log('Webhook response headers:', Object.fromEntries(response.headers.entries()));
+
         if (response.ok) {
+          const responseText = await response.text();
+          console.log('Webhook response body:', responseText);
+          
           toast({
             title: "Time Entry Saved",
             description: "Your time has been logged successfully!",
           });
         } else {
-          throw new Error('Webhook failed');
+          const errorText = await response.text();
+          console.error('Webhook error response:', errorText);
+          throw new Error(`Webhook failed with status ${response.status}: ${errorText}`);
         }
+      } else {
+        console.log('Webhook not configured or disabled');
+        toast({
+          title: "Webhook Not Configured",
+          description: "Time entry extracted but webhook is not configured in settings.",
+          variant: "default",
+        });
       }
     } catch (error) {
       console.error('Error saving time entry:', error);
       toast({
         title: "Error",
-        description: "Failed to save time entry. Please try again.",
+        description: `Failed to save time entry: ${error instanceof Error ? error.message : 'Unknown error'}`,
         variant: "destructive",
       });
     }
