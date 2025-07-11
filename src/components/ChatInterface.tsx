@@ -41,30 +41,22 @@ export function ChatInterface() {
   const [isListening, setIsListening] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const [openaiApiKey, setOpenaiApiKey] = useState('');
-  const [showApiKeyInput, setShowApiKeyInput] = useState(true);
   const { config } = useConfig();
   const { user } = useAuth();
   const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const openaiServiceRef = useRef<OpenAIService | null>(null);
+  const openaiServiceRef = useRef<OpenAIService>(new OpenAIService());
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   useEffect(() => {
-    // Initialize OpenAI service when API key is provided
-    if (openaiApiKey) {
-      openaiServiceRef.current = new OpenAIService(openaiApiKey);
-      initializeChat();
-    }
-  }, [openaiApiKey]);
+    initializeChat();
+  }, []);
 
   const initializeChat = async () => {
-    if (!openaiServiceRef.current) return;
-
     const systemPrompt = openaiServiceRef.current.getSystemPrompt();
     const systemMessage: ChatMessage = {
       role: 'system',
@@ -91,10 +83,11 @@ export function ChatInterface() {
       ]);
     } catch (error) {
       console.error('Error initializing chat:', error);
+      addAIMessage("Hello! I'm here to help you log your time. What task did you work on today?");
       toast({
-        title: "Error",
-        description: "Failed to initialize chat. Please check your API key.",
-        variant: "destructive",
+        title: "Notice",
+        description: "Using fallback mode. Some features may be limited.",
+        variant: "default",
       });
     } finally {
       setIsLoading(false);
@@ -120,15 +113,6 @@ export function ChatInterface() {
   };
 
   const processUserInput = async (input: string) => {
-    if (!openaiServiceRef.current) {
-      toast({
-        title: "Error",
-        description: "Please provide your OpenAI API key first.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     addUserMessage(input);
     setIsLoading(true);
 
@@ -147,7 +131,7 @@ export function ChatInterface() {
       }
     } catch (error) {
       console.error('Error processing user input:', error);
-      addAIMessage("I'm sorry, I encountered an error. Please try again or check your API key.");
+      addAIMessage("I'm sorry, I encountered an error. Please try again.");
       toast({
         title: "Error",
         description: "Failed to process your message. Please try again.",
@@ -160,12 +144,11 @@ export function ChatInterface() {
 
   const handleTimeEntryCompletion = async () => {
     // Extract time entry data from chat history for webhook
-    // This is a simplified version - you might want to implement more sophisticated parsing
     const timeEntry: Partial<TimeEntry> = {
-      taskDescription: "Task from chat", // Extract from conversation
-      durationMinutes: 30, // Extract from conversation
+      taskDescription: "Task from chat",
+      durationMinutes: 30,
       startTime: new Date().toISOString(),
-      workType: 'billable' // Extract from conversation
+      workType: 'billable' as 'billable' | 'non_billable' | 'personal'
     };
 
     try {
@@ -213,16 +196,6 @@ export function ChatInterface() {
     }
   };
 
-  const handleApiKeySubmit = () => {
-    if (openaiApiKey.trim()) {
-      setShowApiKeyInput(false);
-      toast({
-        title: "API Key Set",
-        description: "OpenAI integration is now active.",
-      });
-    }
-  };
-
   const toggleVoiceInput = () => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
       toast({
@@ -267,42 +240,14 @@ export function ChatInterface() {
     }
   };
 
-  if (showApiKeyInput) {
-    return (
-      <div className="flex flex-col h-screen bg-gray-50 items-center justify-center p-4">
-        <Card className="w-full max-w-md p-6">
-          <h2 className="text-xl font-bold mb-4">OpenAI API Key Required</h2>
-          <p className="text-gray-600 mb-4">
-            Please enter your OpenAI API key to enable dynamic chat functionality.
-          </p>
-          <div className="space-y-4">
-            <Input
-              type="password"
-              value={openaiApiKey}
-              onChange={(e) => setOpenaiApiKey(e.target.value)}
-              placeholder="Enter your OpenAI API key"
-              onKeyPress={(e) => e.key === 'Enter' && handleApiKeySubmit()}
-            />
-            <Button onClick={handleApiKeySubmit} className="w-full" disabled={!openaiApiKey.trim()}>
-              Start Chat
-            </Button>
-          </div>
-          <p className="text-sm text-gray-500 mt-4">
-            Your API key is stored locally and not shared with our servers.
-          </p>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Chat Messages */}
       <div className="flex-1 overflow-auto p-4 space-y-4">
         {messages.map((message) => (
           <div key={message.id} className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`flex items-start space-x-2 max-w-xs lg:max-w-md ${message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${message.sender === 'user' ? 'bg-blue-600' : 'bg-gray-600'}`}>
+            <div className={`flex items-start space-x-3 max-w-xs lg:max-w-md ${message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${message.sender === 'user' ? 'bg-blue-600' : 'bg-gray-600'}`}>
                 {message.sender === 'user' ? <User className="w-4 h-4 text-white" /> : <Bot className="w-4 h-4 text-white" />}
               </div>
               <Card className={`p-3 ${message.sender === 'user' ? 'bg-blue-600 text-white' : 'bg-white'}`}>
@@ -313,8 +258,8 @@ export function ChatInterface() {
         ))}
         {isLoading && (
           <div className="flex justify-start">
-            <div className="flex items-start space-x-2 max-w-xs lg:max-w-md">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-600">
+            <div className="flex items-start space-x-3 max-w-xs lg:max-w-md">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-gray-600">
                 <Bot className="w-4 h-4 text-white" />
               </div>
               <Card className="p-3 bg-white">

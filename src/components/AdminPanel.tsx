@@ -1,10 +1,8 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useConfig } from '@/contexts/ConfigContext';
@@ -102,7 +100,7 @@ export function AdminPanel() {
       </div>
 
       <Tabs defaultValue="config" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="config">
             <Database className="w-4 h-4 mr-2" />
             Configuration
@@ -114,10 +112,6 @@ export function AdminPanel() {
           <TabsTrigger value="users">
             <Users className="w-4 h-4 mr-2" />
             Users
-          </TabsTrigger>
-          <TabsTrigger value="settings">
-            <Settings className="w-4 h-4 mr-2" />
-            Settings
           </TabsTrigger>
         </TabsList>
 
@@ -344,24 +338,6 @@ export function AdminPanel() {
                 <h3 className="text-lg font-medium mb-2">User Management Coming Soon</h3>
                 <p className="text-muted-foreground">
                   Advanced user management features will be available in the next update.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="settings" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>System Settings</CardTitle>
-              <p className="text-muted-foreground">Configure global system preferences</p>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-8">
-                <Settings className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-                <h3 className="text-lg font-medium mb-2">Additional Settings Coming Soon</h3>
-                <p className="text-muted-foreground">
-                  More configuration options will be available in future updates.
                 </p>
               </div>
             </CardContent>

@@ -1,51 +1,23 @@
 
+import { supabase } from '@/integrations/supabase/client';
+
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
 }
 
-interface OpenAIResponse {
-  choices: Array<{
-    message: {
-      content: string;
-    };
-  }>;
-}
-
 export class OpenAIService {
-  private apiKey: string;
-  private baseURL = 'https://api.openai.com/v1/chat/completions';
-
-  constructor(apiKey: string) {
-    this.apiKey = apiKey;
-  }
-
   async generateResponse(messages: ChatMessage[]): Promise<string> {
-    if (!this.apiKey) {
-      throw new Error('OpenAI API key not provided');
-    }
-
     try {
-      const response = await fetch(this.baseURL, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4',
-          messages,
-          temperature: 0.7,
-          max_tokens: 500,
-        }),
+      const { data, error } = await supabase.functions.invoke('chat-completion', {
+        body: { messages }
       });
 
-      if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.statusText}`);
+      if (error) {
+        throw error;
       }
 
-      const data: OpenAIResponse = await response.json();
-      return data.choices[0]?.message?.content || 'I apologize, but I could not generate a response.';
+      return data.content;
     } catch (error) {
       console.error('OpenAI API Error:', error);
       throw error;
