@@ -29,11 +29,13 @@ import { Plus, Edit2, Trash2, UserPlus } from 'lucide-react';
 
 interface User {
   id: string;
+  auth_user_id: string | null;
   name: string;
   email: string;
-  role: 'admin' | 'user';
+  role: string;
   is_active: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export function UserManagement() {
@@ -46,7 +48,7 @@ export function UserManagement() {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    role: 'user' as 'admin' | 'user',
+    role: 'user',
     is_active: true
   });
 
@@ -225,7 +227,7 @@ export function UserManagement() {
                 <Label htmlFor="role">Role</Label>
                 <Select
                   value={formData.role}
-                  onValueChange={(value: 'admin' | 'user') => setFormData({ ...formData, role: value })}
+                  onValueChange={(value) => setFormData({ ...formData, role: value })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -342,7 +344,7 @@ export function UserManagement() {
                   <Label htmlFor="edit-role">Role</Label>
                   <Select
                     value={formData.role}
-                    onValueChange={(value: 'admin' | 'user') => setFormData({ ...formData, role: value })}
+                    onValueChange={(value) => setFormData({ ...formData, role: value })}
                   >
                     <SelectTrigger>
                       <SelectValue />
