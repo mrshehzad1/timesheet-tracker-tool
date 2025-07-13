@@ -285,6 +285,11 @@ export function ChatInterface() {
     setIsLoading(true);
 
     try {
+      console.log('Sending message to chat-completion function:', {
+        message: inputValue,
+        conversationHistoryLength: newMessages.slice(-10).length
+      });
+
       const { data, error } = await supabase.functions.invoke('chat-completion', {
         body: { 
           message: inputValue,
@@ -295,7 +300,12 @@ export function ChatInterface() {
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase function error:', error);
+        throw error;
+      }
+
+      console.log('Received response from chat-completion function:', data);
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
