@@ -1,563 +1,441 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card } from '@/components/ui/card';
-import { useConfig } from '@/contexts/ConfigContext';
-import { useAuth } from '@/contexts/AuthContext';
+import { Card, CardContent } from '@/components/ui/card';
+import { Send, Mic, MicOff, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Send, Mic, MicOff, User, Bot, MessageSquare } from 'lucide-react';
-import { OpenAIService } from '@/services/openai';
-
-export interface TimeEntry {
-  taskDescription: string;
-  durationMinutes: number;
-  startTime: string;
-  workType: 'billable' | 'non_billable' | 'personal';
-  matterName?: string;
-  costCentreName?: string;
-  businessAreaName?: string;
-  subcategoryName?: string;
-  enjoymentLevel?: string;
-  energyImpact?: string;
-  taskGoal?: string;
-}
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface Message {
   id: string;
-  content: string;
+  text: string;
   sender: 'user' | 'ai';
   timestamp: Date;
 }
 
-interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
-
-interface ChatSession {
-  messages: Message[];
-  chatHistory: ChatMessage[];
-  timestamp: number;
-}
-
 export function ChatInterface() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [inputValue, setInputValue] = useState('');
-  const [isListening, setIsListening] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const { config } = useConfig();
   const { user } = useAuth();
   const { toast } = useToast();
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputValue, setInputValue] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const openaiServiceRef = useRef<OpenAIService>(new OpenAIService());
 
-  const STORAGE_KEY = `chat_session_${user?.id || 'anonymous'}`;
-
+  // Load messages from localStorage on component mount
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  useEffect(() => {
-    loadChatSession();
-  }, []);
-
-  // Save chat session to localStorage whenever state changes
-  useEffect(() => {
-    if (messages.length > 0 || chatHistory.length > 0) {
-      saveChatSession();
-    }
-  }, [messages, chatHistory]);
-
-  const saveChatSession = () => {
-    const session: ChatSession = {
-      messages,
-      chatHistory,
-      timestamp: Date.now()
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-  };
-
-  const loadChatSession = () => {
-    try {
-      const savedSession = localStorage.getItem(STORAGE_KEY);
-      if (savedSession) {
-        const session: ChatSession = JSON.parse(savedSession);
-        // Convert timestamp strings back to Date objects
-        const messagesWithDates = session.messages.map(msg => ({
+    const savedMessages = localStorage.getItem('chatMessages');
+    if (savedMessages) {
+      try {
+        const parsedMessages = JSON.parse(savedMessages).map((msg: any) => ({
           ...msg,
           timestamp: new Date(msg.timestamp)
         }));
-        setMessages(messagesWithDates);
-        setChatHistory(session.chatHistory);
-        
-        // If we have an existing session, don't initialize a new one
-        if (session.messages.length > 0) {
-          return;
-        }
+        setMessages(parsedMessages);
+      } catch (error) {
+        console.error('Error parsing saved messages:', error);
       }
-    } catch (error) {
-      console.error('Error loading chat session:', error);
     }
-    
-    // Initialize new chat if no session exists
-    initializeChat();
-  };
+  }, []);
 
-  const startNewChat = () => {
-    // Clear current session
-    setMessages([]);
-    setChatHistory([]);
-    localStorage.removeItem(STORAGE_KEY);
-    
-    // Initialize new chat
-    initializeChat();
-    
-    toast({
-      title: "New Chat Started",
-      description: "Your previous conversation has been cleared.",
-    });
-  };
-
-  const initializeChat = async () => {
-    const systemPrompt = openaiServiceRef.current.getSystemPrompt();
-    const systemMessage: ChatMessage = {
-      role: 'system',
-      content: systemPrompt
-    };
-
-    const initialMessages = [systemMessage];
-    setChatHistory(initialMessages);
-
-    try {
-      setIsLoading(true);
-      const aiResponse = await openaiServiceRef.current.generateResponse([
-        ...initialMessages,
-        {
-          role: 'user',
-          content: 'Hello, I need to log my time.'
-        }
-      ]);
-
-      addAIMessage(aiResponse);
-      setChatHistory(prev => [...prev, 
-        { role: 'user', content: 'Hello, I need to log my time.' },
-        { role: 'assistant', content: aiResponse }
-      ]);
-    } catch (error) {
-      console.error('Error initializing chat:', error);
-      addAIMessage("Hello! I'm here to help you log your time. What task did you work on today?");
-      toast({
-        title: "Notice",
-        description: "Using fallback mode. Some features may be limited.",
-        variant: "default",
-      });
-    } finally {
-      setIsLoading(false);
+  // Save messages to localStorage whenever messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem('chatMessages', JSON.stringify(messages));
     }
-  };
+  }, [messages]);
 
-  const addMessage = (content: string, sender: 'user' | 'ai') => {
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      content,
-      sender,
-      timestamp: new Date(),
-    };
-    setMessages(prev => [...prev, newMessage]);
-  };
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
-  const addAIMessage = (content: string) => {
-    addMessage(content, 'ai');
-  };
+  useEffect(() => {
+    // Initialize speech recognition
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = 'en-US';
 
-  const addUserMessage = (content: string) => {
-    addMessage(content, 'user');
-  };
-
-  const extractTimeEntryFromChat = (): Partial<TimeEntry> | null => {
-    try {
-      // Look for the final confirmation message that contains structured data
-      const chatContent = chatHistory.map(msg => msg.content).join('\n');
-      
-      // Extract task description
-      const taskMatch = chatContent.match(/Task:\s*([^\n]+)/i);
-      const taskDescription = taskMatch ? taskMatch[1].trim() : 'Task from chat';
-      
-      // Extract duration - look for various formats
-      const durationMatches = [
-        chatContent.match(/Duration:\s*(\d+)\s*hours?/i),
-        chatContent.match(/Duration:\s*(\d+)\s*minutes?/i),
-        chatContent.match(/Duration:\s*(\d+)h/i),
-        chatContent.match(/(\d+)\s*hours?/i),
-        chatContent.match(/(\d+)\s*minutes?/i)
-      ];
-      
-      let durationMinutes = 30; // default
-      for (const match of durationMatches) {
-        if (match) {
-          const value = parseInt(match[1]);
-          if (match[0].toLowerCase().includes('hour')) {
-            durationMinutes = value * 60;
-          } else {
-            durationMinutes = value;
-          }
-          break;
-        }
-      }
-      
-      // Extract work type
-      let workType: 'billable' | 'non_billable' | 'personal' = 'billable';
-      if (chatContent.toLowerCase().includes('non-billable') || chatContent.toLowerCase().includes('non billable')) {
-        workType = 'non_billable';
-      } else if (chatContent.toLowerCase().includes('personal')) {
-        workType = 'personal';
-      }
-      
-      // Extract matter/client for billable work
-      let matterName = undefined;
-      const matterMatch = chatContent.match(/(?:Matter|Client):\s*([^\n]+)/i);
-      if (matterMatch && workType === 'billable') {
-        matterName = matterMatch[1].trim();
-      }
-      
-      // Extract cost centre for billable work
-      let costCentreName = undefined;
-      const costCentreMatch = chatContent.match(/Cost Centre:\s*([^\n]+)/i);
-      if (costCentreMatch && workType === 'billable') {
-        costCentreName = costCentreMatch[1].trim();
-      }
-      
-      // Extract business area for non-billable work
-      let businessAreaName = undefined;
-      const businessAreaMatch = chatContent.match(/Business Area:\s*([^\n]+)/i);
-      if (businessAreaMatch && workType === 'non_billable') {
-        businessAreaName = businessAreaMatch[1].trim();
-      }
-      
-      // Extract subcategory for non-billable work
-      let subcategoryName = undefined;
-      const subcategoryMatch = chatContent.match(/Subcategory:\s*([^\n]+)/i);
-      if (subcategoryMatch && workType === 'non_billable') {
-        subcategoryName = subcategoryMatch[1].trim();
-      }
-      
-      // Extract enjoyment level
-      let enjoymentLevel = undefined;
-      const enjoymentPatterns = [
-        /Enjoyment Level:\s*([^\n]+)/i,
-        /(Love it|Like it|Hate it).*?(Great at it|Good at it|Bad at it)/i
-      ];
-      for (const pattern of enjoymentPatterns) {
-        const match = chatContent.match(pattern);
-        if (match) {
-          enjoymentLevel = match[1].trim();
-          break;
-        }
-      }
-      
-      // Extract energy impact
-      let energyImpact = undefined;
-      const energyPatterns = [
-        /Energy Impact:\s*([^\n]+)/i,
-        /(Energy Gain|Energy Drain|Energy Neutral)/i
-      ];
-      for (const pattern of energyPatterns) {
-        const match = chatContent.match(pattern);
-        if (match) {
-          energyImpact = match[1].trim();
-          break;
-        }
-      }
-      
-      // Extract task goal
-      let taskGoal = undefined;
-      const goalPatterns = [
-        /Future Goal:\s*([^\n]+)/i,
-        /(Delegate it to AI|Delegate it to another person|Transfer it to someone|Retain it)/i
-      ];
-      for (const pattern of goalPatterns) {
-        const match = chatContent.match(pattern);
-        if (match) {
-          taskGoal = match[1].trim();
-          break;
-        }
-      }
-      
-      console.log('Extracted time entry data:', {
-        taskDescription,
-        durationMinutes,
-        workType,
-        matterName,
-        costCentreName,
-        businessAreaName,
-        subcategoryName,
-        enjoymentLevel,
-        energyImpact,
-        taskGoal
-      });
-      
-      return {
-        taskDescription,
-        durationMinutes,
-        startTime: new Date().toISOString(),
-        workType,
-        matterName,
-        costCentreName,
-        businessAreaName,
-        subcategoryName,
-        enjoymentLevel,
-        energyImpact,
-        taskGoal
-      };
-    } catch (error) {
-      console.error('Error extracting time entry data:', error);
-      return null;
-    }
-  };
-
-  const processUserInput = async (input: string) => {
-    addUserMessage(input);
-    setIsLoading(true);
-
-    try {
-      const userMessage: ChatMessage = { role: 'user', content: input };
-      const newChatHistory = [...chatHistory, userMessage];
-      
-      const aiResponse = await openaiServiceRef.current.generateResponse(newChatHistory);
-      
-      addAIMessage(aiResponse);
-      setChatHistory([...newChatHistory, { role: 'assistant', content: aiResponse }]);
-
-      // Check if the response indicates completion and extract time entry data
-      const completionKeywords = [
-        'save this to your timesheet',
-        'updating your timesheet',
-        'time entry has been saved',
-        'save to timesheet',
-        'log this entry'
-      ];
-      
-      const shouldSave = completionKeywords.some(keyword => 
-        aiResponse.toLowerCase().includes(keyword.toLowerCase())
-      );
-
-      if (shouldSave) {
-        console.log('Detected completion signal, attempting to save time entry');
-        handleTimeEntryCompletion();
-      }
-    } catch (error) {
-      console.error('Error processing user input:', error);
-      addAIMessage("I'm sorry, I encountered an error. Please try again.");
-      toast({
-        title: "Error",
-        description: "Failed to process your message. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleTimeEntryCompletion = async () => {
-    console.log('Starting time entry completion process');
-    
-    // Extract time entry data from chat history
-    const timeEntry = extractTimeEntryFromChat();
-    
-    if (!timeEntry) {
-      console.error('Failed to extract time entry data from chat');
-      toast({
-        title: "Error",
-        description: "Failed to extract time entry data. Please try again.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      const webhookPayload = {
-        user_id: user?.id,
-        user_name: user?.name || user?.email,
-        user_email: user?.email,
-        timestamp: new Date().toISOString(),
-        time_entry: timeEntry
-      };
-
-      console.log('Webhook payload:', webhookPayload);
-
-      if (config.webhook.isEnabled && config.webhook.url) {
-        console.log('Sending webhook to:', config.webhook.url);
-        
-        const response = await fetch(config.webhook.url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(config.webhook.apiKey && { 'Authorization': `Bearer ${config.webhook.apiKey}` })
-          },
-          body: JSON.stringify(webhookPayload)
-        });
-
-        console.log('Webhook response status:', response.status);
-        console.log('Webhook response headers:', Object.fromEntries(response.headers.entries()));
-
-        if (response.ok) {
-          const responseText = await response.text();
-          console.log('Webhook response body:', responseText);
-          
-          toast({
-            title: "Time Entry Saved",
-            description: "Your time has been logged successfully!",
-          });
-        } else {
-          const errorText = await response.text();
-          console.error('Webhook error response:', errorText);
-          throw new Error(`Webhook failed with status ${response.status}: ${errorText}`);
-        }
-      } else {
-        console.log('Webhook not configured or disabled');
-        toast({
-          title: "Webhook Not Configured",
-          description: "Time entry extracted but webhook is not configured in settings.",
-          variant: "default",
-        });
-      }
-    } catch (error) {
-      console.error('Error saving time entry:', error);
-      toast({
-        title: "Error",
-        description: `Failed to save time entry: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleSend = () => {
-    if (inputValue.trim()) {
-      processUserInput(inputValue.trim());
-      setInputValue('');
-    }
-  };
-
-  const toggleVoiceInput = () => {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      toast({
-        title: "Voice input not supported",
-        description: "Your browser doesn't support voice input.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-    } else {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
-      
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-
-      recognition.onstart = () => setIsListening(true);
-      recognition.onend = () => setIsListening(false);
-      
-      recognition.onresult = (event) => {
+      recognitionRef.current.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         setInputValue(transcript);
+        setIsListening(false);
       };
 
-      recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
+      recognitionRef.current.onerror = () => {
         setIsListening(false);
         toast({
-          title: "Voice input error",
-          description: "There was an error with voice input. Please try again.",
+          title: "Speech Recognition Error",
+          description: "Could not recognize speech. Please try again.",
           variant: "destructive",
         });
       };
 
-      recognitionRef.current = recognition;
-      recognition.start();
+      recognitionRef.current.onend = () => {
+        setIsListening(false);
+      };
+    }
+  }, [toast]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const startListening = () => {
+    if (recognitionRef.current && !isListening) {
+      setIsListening(true);
+      recognitionRef.current.start();
+    }
+  };
+
+  const stopListening = () => {
+    if (recognitionRef.current && isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    }
+  };
+
+  const startNewChat = () => {
+    setMessages([]);
+    localStorage.removeItem('chatMessages');
+    toast({
+      title: "New Chat Started",
+      description: "Previous conversation has been cleared.",
+    });
+  };
+
+  const extractTimeEntryData = (conversation: Message[]) => {
+    const conversationText = conversation.map(msg => `${msg.sender}: ${msg.text}`).join('\n');
+    
+    console.log('Extracting data from conversation:', conversationText);
+    
+    // Enhanced extraction logic with multiple patterns
+    const extractors = {
+      duration: [
+        /(?:spent|took|worked for|duration.*?)\s*(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)/i,
+        /(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)\s*(?:on|working|spent)/i,
+        /(\d+)\s*minutes?/i
+      ],
+      task: [
+        /(?:worked on|task was|doing|completed)\s*[:\-]?\s*([^.!?\n]+)/i,
+        /task[:\-]?\s*([^.!?\n]+)/i,
+        /(?:I|we)\s+([^.!?\n]*(?:meeting|call|review|analysis|development|coding|design)[^.!?\n]*)/i
+      ],
+      workType: [
+        /(?:this (?:was|is)|work (?:was|is))\s*(billable|non-billable|personal)/i,
+        /(billable|non-billable|personal)\s*(?:work|task|time)/i
+      ],
+      matter: [
+        /(?:matter|client|project)[:\-]?\s*([^.!?\n]+)/i,
+        /(?:for|on)\s+([A-Z][^.!?\n]*(?:project|client|matter)[^.!?\n]*)/i
+      ],
+      enjoyment: [
+        /(?:enjoyed|enjoyment|liked|loved|hated|disliked)[:\-]?\s*([^.!?\n]+)/i,
+        /(?:it was|felt)\s*(great|good|okay|bad|terrible|amazing|awful)/i
+      ],
+      energy: [
+        /(?:energy|tired|energized|drained|exhausted)[:\-]?\s*([^.!?\n]+)/i,
+        /(?:felt|feeling)\s*(energized|tired|drained|exhausted|refreshed)/i
+      ]
+    };
+
+    const extractedData: any = {};
+
+    // Extract duration (convert to minutes if needed)
+    for (const pattern of extractors.duration) {
+      const match = conversationText.match(pattern);
+      if (match) {
+        let duration = parseFloat(match[1]);
+        if (pattern.source.includes('hours')) {
+          duration *= 60; // Convert hours to minutes
+        }
+        extractedData.duration_minutes = Math.round(duration);
+        break;
+      }
+    }
+
+    // Extract other fields
+    Object.entries(extractors).forEach(([key, patterns]) => {
+      if (key === 'duration') return; // Already handled above
+      
+      for (const pattern of patterns) {
+        const match = conversationText.match(pattern);
+        if (match && match[1]) {
+          extractedData[key] = match[1].trim();
+          break;
+        }
+      }
+    });
+
+    // Set defaults for missing data
+    return {
+      task_description: extractedData.task || 'General work',
+      duration_minutes: extractedData.duration_minutes || 30,
+      work_type: extractedData.workType || 'billable',
+      matter_name: extractedData.matter || 'General',
+      cost_centre_name: 'Development',
+      business_area_name: 'Software Development',
+      subcategory_name: 'General Work',
+      enjoyment_level: extractedData.enjoyment || 'neutral',
+      energy_impact: extractedData.energy || 'neutral',
+      task_goal: 'Productivity'
+    };
+  };
+
+  const sendWebhook = async (timeEntryData: any) => {
+    try {
+      console.log('Attempting to send webhook with data:', timeEntryData);
+      
+      // Fetch webhook configuration from database
+      const { data: webhookConfig, error } = await supabase
+        .from('webhook_config')
+        .select('*')
+        .eq('is_enabled', true)
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching webhook config:', error);
+        return;
+      }
+
+      if (!webhookConfig || !webhookConfig.url) {
+        console.log('No active webhook configuration found');
+        return;
+      }
+
+      console.log('Using webhook config:', { url: webhookConfig.url, enabled: webhookConfig.is_enabled });
+
+      const webhookPayload = {
+        user_id: user?.id || 'anonymous',
+        user_name: user?.name || 'Anonymous User',
+        user_email: user?.email || 'anonymous@example.com',
+        timestamp: new Date().toISOString(),
+        time_entry: {
+          ...timeEntryData,
+          start_time: new Date(Date.now() - (timeEntryData.duration_minutes * 60 * 1000)).toISOString()
+        }
+      };
+
+      console.log('Sending webhook payload:', webhookPayload);
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+
+      if (webhookConfig.api_key) {
+        headers['Authorization'] = `Bearer ${webhookConfig.api_key}`;
+      }
+
+      const response = await fetch(webhookConfig.url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(webhookPayload)
+      });
+
+      console.log('Webhook response status:', response.status);
+      
+      if (response.ok) {
+        console.log('Webhook sent successfully');
+        toast({
+          title: "Time Entry Recorded",
+          description: "Your time entry has been sent to the external system.",
+        });
+      } else {
+        console.error('Webhook failed with status:', response.status);
+        const errorText = await response.text();
+        console.error('Webhook error response:', errorText);
+      }
+    } catch (error) {
+      console.error('Error sending webhook:', error);
+    }
+  };
+
+  const detectTaskCompletion = (messages: Message[]) => {
+    const lastFewMessages = messages.slice(-3);
+    const conversationText = lastFewMessages.map(msg => msg.text.toLowerCase()).join(' ');
+    
+    const completionIndicators = [
+      'that completes', 'finished', 'done', 'completed', 'wrapped up',
+      'that concludes', 'end of session', 'logging this time', 'record this time',
+      'save this entry', 'submit this', 'log the time', 'time entry complete'
+    ];
+    
+    return completionIndicators.some(indicator => conversationText.includes(indicator));
+  };
+
+  const sendMessage = async () => {
+    if (!inputValue.trim() || isLoading) return;
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      text: inputValue,
+      sender: 'user',
+      timestamp: new Date(),
+    };
+
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
+    setInputValue('');
+    setIsLoading(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('chat-completion', {
+        body: { 
+          message: inputValue,
+          conversationHistory: newMessages.slice(-10).map(msg => ({
+            role: msg.sender === 'user' ? 'user' : 'assistant',
+            content: msg.text
+          }))
+        }
+      });
+
+      if (error) throw error;
+
+      const aiMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: data.response || 'I apologize, but I encountered an error processing your request.',
+        sender: 'ai',
+        timestamp: new Date(),
+      };
+
+      const finalMessages = [...newMessages, aiMessage];
+      setMessages(finalMessages);
+
+      // Check if this looks like a task completion
+      if (detectTaskCompletion(finalMessages)) {
+        console.log('Task completion detected, extracting time entry data');
+        const timeEntryData = extractTimeEntryData(finalMessages);
+        console.log('Extracted time entry data:', timeEntryData);
+        await sendWebhook(timeEntryData);
+      }
+
+    } catch (error) {
+      console.error('Error sending message:', error);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: 'I apologize, but I encountered an error. Please try again.',
+        sender: 'ai',
+        timestamp: new Date(),
+      };
+      setMessages([...newMessages, errorMessage]);
+      
+      toast({
+        title: "Error",
+        description: "Failed to send message. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
     }
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
-      {/* Header with New Chat button */}
-      <div className="p-4 bg-white border-b flex justify-between items-center">
-        <h2 className="text-lg font-semibold text-gray-800">Time Tracking Assistant</h2>
+    <div className="flex flex-col h-[calc(100vh-120px)] max-w-4xl mx-auto p-4">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-2xl font-bold">TimeTracker AI Assistant</h2>
+          <p className="text-muted-foreground">
+            Track your time by describing your work activities naturally
+          </p>
+        </div>
         <Button 
           variant="outline" 
-          size="sm" 
           onClick={startNewChat}
-          className="flex items-center space-x-2"
+          className="flex items-center gap-2"
         >
-          <MessageSquare className="h-4 w-4" />
-          <span>New Chat</span>
+          <RotateCcw className="w-4 h-4" />
+          New Chat
         </Button>
       </div>
 
-      {/* Chat Messages */}
-      <div className="flex-1 overflow-auto p-4 space-y-4">
-        {messages.map((message) => (
-          <div key={message.id} className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`flex items-start space-x-3 max-w-xs lg:max-w-md ${message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${message.sender === 'user' ? 'bg-blue-600' : 'bg-gray-600'}`}>
-                {message.sender === 'user' ? <User className="w-4 h-4 text-white" /> : <Bot className="w-4 h-4 text-white" />}
+      <Card className="flex-1 flex flex-col">
+        <CardContent className="flex-1 overflow-auto p-4">
+          <div className="space-y-4">
+            {messages.length === 0 && (
+              <div className="text-center text-muted-foreground py-8">
+                <h3 className="text-lg font-medium mb-2">Welcome to TimeTracker AI!</h3>
+                <p>Start by describing what you've been working on today.</p>
+                <p className="text-sm mt-2">
+                  Example: "I spent 2 hours working on the client presentation for Project Alpha"
+                </p>
               </div>
-              <Card className={`p-3 ${message.sender === 'user' ? 'bg-blue-600 text-white' : 'bg-white'}`}>
-                <p className="text-sm whitespace-pre-line">{message.content}</p>
-              </Card>
-            </div>
-          </div>
-        ))}
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="flex items-start space-x-3 max-w-xs lg:max-w-md">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-gray-600">
-                <Bot className="w-4 h-4 text-white" />
-              </div>
-              <Card className="p-3 bg-white">
-                <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+            )}
+            
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`max-w-[80%] p-3 rounded-lg ${
+                    message.sender === 'user'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted'
+                  }`}
+                >
+                  <p className="whitespace-pre-wrap">{message.text}</p>
+                  <p className="text-xs opacity-70 mt-1">
+                    {message.timestamp.toLocaleTimeString()}
+                  </p>
                 </div>
-              </Card>
-            </div>
+              </div>
+            ))}
+            
+            {isLoading && (
+              <div className="flex justify-start">
+                <div className="bg-muted p-3 rounded-lg">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-current rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                    <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
           </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input Area */}
-      <div className="p-4 bg-white border-t">
-        <div className="flex space-x-2">
-          <Input
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Type your response..."
-            onKeyPress={(e) => e.key === 'Enter' && !isLoading && handleSend()}
-            className="flex-1"
-            disabled={isLoading}
-          />
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={toggleVoiceInput}
-            className={isListening ? 'bg-red-100 border-red-300' : ''}
-            disabled={isLoading}
-          >
-            {isListening ? <MicOff className="h-4 w-4 text-red-600" /> : <Mic className="h-4 w-4" />}
-          </Button>
-          <Button onClick={handleSend} disabled={!inputValue.trim() || isLoading}>
-            <Send className="h-4 w-4" />
-          </Button>
+        </CardContent>
+        
+        <div className="p-4 border-t">
+          <div className="flex space-x-2">
+            <Input
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Describe your work activity..."
+              disabled={isLoading}
+              className="flex-1"
+            />
+            
+            <Button
+              onClick={isListening ? stopListening : startListening}
+              variant="outline"
+              size="icon"
+              disabled={isLoading}
+              className={isListening ? 'bg-red-100 hover:bg-red-200' : ''}
+            >
+              {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            </Button>
+            
+            <Button onClick={sendMessage} disabled={isLoading || !inputValue.trim()}>
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }
