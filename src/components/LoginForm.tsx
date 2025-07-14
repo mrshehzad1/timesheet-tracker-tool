@@ -10,6 +10,7 @@ import { Loader2, MessageSquare } from 'lucide-react';
 export function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
   const { login, isLoading } = useAuth();
   const { toast } = useToast();
 
@@ -25,19 +26,45 @@ export function LoginForm() {
       return;
     }
 
-    const success = await login(email, password);
-    
-    if (success) {
-      toast({
-        title: "Welcome Admin!",
-        description: "You've successfully logged in.",
+    if (isSignUp) {
+      // Handle sign up
+      const { supabase } = await import('@/integrations/supabase/client');
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/`
+        }
       });
+
+      if (error) {
+        toast({
+          title: "Sign Up Failed",
+          description: error.message,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Account Created!",
+          description: "Please check your email to confirm your account, or you may be automatically logged in.",
+        });
+      }
     } else {
-      toast({
-        title: "Login Failed",
-        description: "Invalid credentials or you don't have admin access. Only admin users can log in.",
-        variant: "destructive",
-      });
+      // Handle login
+      const success = await login(email, password);
+      
+      if (success) {
+        toast({
+          title: "Welcome Admin!",
+          description: "You've successfully logged in.",
+        });
+      } else {
+        toast({
+          title: "Login Failed",
+          description: "Invalid credentials or you don't have admin access. Only admin users can log in.",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -50,7 +77,7 @@ export function LoginForm() {
           </div>
           <CardTitle className="text-2xl font-bold">TimeTracker AI</CardTitle>
           <p className="text-muted-foreground">
-            Admin Login Only
+            {isSignUp ? "Create Admin Account" : "Admin Login Only"}
           </p>
         </CardHeader>
         <CardContent>
@@ -81,13 +108,27 @@ export function LoginForm() {
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Signing in...
+                  {isSignUp ? 'Creating Account...' : 'Signing in...'}
                 </>
               ) : (
-                'Admin Sign In'
+                isSignUp ? 'Create Admin Account' : 'Admin Sign In'
               )}
             </Button>
           </form>
+          
+          <div className="mt-6 text-center">
+            <button
+              type="button"
+              onClick={() => setIsSignUp(!isSignUp)}
+              className="text-sm text-blue-600 hover:text-blue-800 underline"
+            >
+              {isSignUp 
+                ? "Already have an account? Sign in" 
+                : "Need to create an admin account? Sign up"
+              }
+            </button>
+          </div>
+
           <div className="mt-4 text-sm text-muted-foreground text-center">
             <p>Only administrators can access this system</p>
             <p><strong>Admin Email:</strong> shehzadsc@gmail.com</p>
