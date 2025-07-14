@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -38,15 +37,9 @@ export function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      content: `Hi! I'm your AI time tracking assistant. I'll help you log your work activities and categorize them properly. 
+      content: `Hi there! 👋 I'm your AI time tracking assistant. I'm here to help you log your work activities in a quick and natural way.
 
-Available options:
-• **Matters/Clients**: ${config.matters.join(', ')}
-• **Cost Centres**: ${config.costCentres.join(', ')}
-• **Business Areas**: ${config.businessAreas.join(', ')}
-• **Subcategories**: ${config.subcategories.join(', ')}
-
-Just tell me what you worked on today!`,
+What did you work on today? Just tell me about any task, and I'll help you categorize it properly!`,
       sender: 'assistant',
       timestamp: new Date()
     }
