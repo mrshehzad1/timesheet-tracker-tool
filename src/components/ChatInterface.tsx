@@ -7,6 +7,7 @@ import { Send, Mic, MicOff, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useConfig } from '@/contexts/ConfigContext';
 
 interface Message {
   id: string;
@@ -17,6 +18,7 @@ interface Message {
 
 export function ChatInterface() {
   const { user } = useAuth();
+  const { config } = useConfig();
   const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -134,6 +136,15 @@ export function ChatInterface() {
         /(?:matter|client|project)[:\-]?\s*([^.!?\n]+)/i,
         /(?:for|on)\s+([A-Z][^.!?\n]*(?:project|client|matter)[^.!?\n]*)/i
       ],
+      costCentre: [
+        /(?:cost centre|cost center|department)[:\-]?\s*([^.!?\n]+)/i
+      ],
+      businessArea: [
+        /(?:business area|area)[:\-]?\s*([^.!?\n]+)/i
+      ],
+      subcategory: [
+        /(?:subcategory|category)[:\-]?\s*([^.!?\n]+)/i
+      ],
       enjoyment: [
         /(?:enjoyed|enjoyment|liked|loved|hated|disliked)[:\-]?\s*([^.!?\n]+)/i,
         /(?:it was|felt)\s*(great|good|okay|bad|terrible|amazing|awful)/i
@@ -141,6 +152,9 @@ export function ChatInterface() {
       energy: [
         /(?:energy|tired|energized|drained|exhausted)[:\-]?\s*([^.!?\n]+)/i,
         /(?:felt|feeling)\s*(energized|tired|drained|exhausted|refreshed)/i
+      ],
+      taskGoal: [
+        /(?:goal|future|delegate|retain)[:\-]?\s*([^.!?\n]+)/i
       ]
     };
 
@@ -172,18 +186,20 @@ export function ChatInterface() {
       }
     });
 
-    // Set defaults for missing data
+    // Set defaults for missing data, using actual config data
     return {
       task_description: extractedData.task || 'General work',
       duration_minutes: extractedData.duration_minutes || 30,
       work_type: extractedData.workType || 'billable',
-      matter_name: extractedData.matter || 'General',
-      cost_centre_name: 'Development',
-      business_area_name: 'Software Development',
-      subcategory_name: 'General Work',
+      matter_name: extractedData.matter || config.matters[0] || 'General',
+      cost_centre_name: extractedData.costCentre || config.costCentres[0] || 'Development',
+      business_area_name: extractedData.businessArea || config.businessAreas[0] || 'Software Development',
+      subcategory_name: extractedData.subcategory || config.subcategories[0] || 'General Work',
       enjoyment_level: extractedData.enjoyment || 'neutral',
       energy_impact: extractedData.energy || 'neutral',
-      task_goal: 'Productivity'
+      task_goal: extractedData.taskGoal || 'retain',
+      timestamp: new Date().toISOString(),
+      is_estimate: false
     };
   };
 
@@ -287,7 +303,8 @@ export function ChatInterface() {
     try {
       console.log('Sending message to chat-completion function:', {
         message: inputValue,
-        conversationHistoryLength: newMessages.slice(-10).length
+        conversationHistoryLength: newMessages.slice(-10).length,
+        config: config
       });
 
       const { data, error } = await supabase.functions.invoke('chat-completion', {
@@ -296,7 +313,8 @@ export function ChatInterface() {
           conversationHistory: newMessages.slice(-10).map(msg => ({
             role: msg.sender === 'user' ? 'user' : 'assistant',
             content: msg.text
-          }))
+          })),
+          config: config
         }
       });
 

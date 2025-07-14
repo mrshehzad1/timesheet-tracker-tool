@@ -14,7 +14,36 @@ interface ChatMessage {
   content: string;
 }
 
-const getSystemPrompt = (): string => {
+interface ConfigData {
+  matters: string[];
+  costCentres: string[];
+  businessAreas: string[];
+  subcategories: string[];
+  webhook: {
+    url: string;
+    apiKey: string;
+    isEnabled: boolean;
+    retryAttempts: number;
+  };
+}
+
+const getSystemPrompt = (config?: ConfigData): string => {
+  const mattersListText = config?.matters?.length ? 
+    config.matters.map((matter, index) => `${index + 1}. ${matter}`).join('\n   ') : 
+    '1. Client A - Project Alpha\n   2. Client B - Project Beta\n   3. Internal - Marketing';
+
+  const costCentresListText = config?.costCentres?.length ? 
+    config.costCentres.map((centre, index) => `${index + 1}. ${centre}`).join('\n   ') : 
+    '1. Development\n   2. Marketing\n   3. Operations';
+
+  const businessAreasListText = config?.businessAreas?.length ? 
+    config.businessAreas.map((area, index) => `${index + 1}. ${area}`).join('\n   ') : 
+    '1. Software Development\n   2. Client Relations\n   3. Administrative Tasks';
+
+  const subcategoriesListText = config?.subcategories?.length ? 
+    config.subcategories.map((sub, index) => `${index + 1}. ${sub}`).join('\n   ') : 
+    '1. Meetings\n   2. Documentation\n   3. Research';
+
   return `# Backend AI Conversational Prompt for Time Tracking System
 
 ## System Instructions
@@ -47,19 +76,19 @@ First, tell me about the task you worked on today - what did you do, how long di
 "Great! Since this is billable work, I need two more details:
 
 1. Which matter/client is this for? Here are your available matters:
-   [DISPLAY_MATTERS_LIST]
+   ${mattersListText}
 
 2. What cost centre should I assign this to? Here are your options:
-   [DISPLAY_COST_CENTRES_LIST]"
+   ${costCentresListText}"
 
 #### **If User Says "Non-billable":**
 "Perfect! For non-billable work, I need to know:
 
 1. Which business area does this fall under? Here are your options:
-   [DISPLAY_BUSINESS_AREAS_LIST]
+   ${businessAreasListText}
 
 2. What subcategory best describes this work? Based on your business area selection:
-   [DISPLAY_SUBCATEGORIES_LIST]"
+   ${subcategoriesListText}"
 
 #### **If User Says "Personal":**
 "Got it! Personal time noted. Now let's move on to understand how you feel about this type of work."
@@ -220,15 +249,19 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured');
     }
 
-    const { message, conversationHistory } = await req.json();
+    const { message, conversationHistory, config } = await req.json();
 
-    console.log('Received request:', { message, conversationHistoryLength: conversationHistory?.length });
+    console.log('Received request:', { 
+      message, 
+      conversationHistoryLength: conversationHistory?.length,
+      configProvided: !!config
+    });
 
-    // Build messages array with system prompt
+    // Build messages array with system prompt that includes config data
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: getSystemPrompt()
+        content: getSystemPrompt(config)
       }
     ];
 
