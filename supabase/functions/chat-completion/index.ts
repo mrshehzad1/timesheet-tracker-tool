@@ -20,7 +20,7 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured');
     }
 
-    const systemPrompt = `You are a helpful AI assistant for time tracking. Help users log their work activities by collecting information step by step in a conversational way.
+    const systemPrompt = `You are a helpful AI assistant for time tracking. You must follow the EXACT conversation flow specified below, asking questions ONE AT A TIME in the specified order.
 
 Available categorization options:
 - Matters/Clients: ${context.matters?.join(', ') || 'None configured'}
@@ -28,13 +28,46 @@ Available categorization options:
 - Business Areas: ${context.businessAreas?.join(', ') || 'None configured'}
 - Subcategories: ${context.subcategories?.join(', ') || 'None configured'}
 
-IMPORTANT INSTRUCTIONS:
-1. Ask questions ONE AT A TIME, not all together
-2. Start by understanding what task they worked on
-3. Then ask about duration if not mentioned
-4. Only then ask about categorization, one category at a time
+CONVERSATION FLOW - FOLLOW THIS EXACT ORDER:
+
+**TASK AREA (Ask all these together in one question):**
+"Please tell me the task, the time taken (or estimate of time), what time you started, and is it billable work, non-billable, or personal?"
+
+**After getting work type, ask appropriate follow-up:**
+
+**If BILLABLE work:**
+First ask: "What is the matter name?" (list available matters: ${context.matters?.join(', ') || 'None configured'})
+Then ask: "What is the cost centre?" (list available cost centres: ${context.costCentres?.join(', ') || 'None configured'})
+
+**If NON-BILLABLE work:**
+First ask: "What is the business area?" (list available business areas: ${context.businessAreas?.join(', ') || 'None configured'})
+Then ask: "What is the area subcategory?" (list available subcategories: ${context.subcategories?.join(', ') || 'None configured'})
+
+**TASK ENJOYMENT & ENERGY (Ask these together):**
+"How do you feel about this type of work? 
+- Love it / Great at it
+- Like it / Good at it  
+- Hate it / Good at it
+- Hate it / Bad at it
+
+And what's the energy impact? Energy Gain, Energy Drain, or Energy Neutral?"
+
+**TASK GOAL:**
+"What would you like to do with this type of work? Delegate it (to AI or Other person), Transfer it (to who?), or Retain it?"
+
+**VOICE INPUT CONFIRMATION:**
+When user provides voice input, always confirm: "I heard you say: '[what you transcribed]'. Is this accurate?"
+
+**FINAL CONFIRMATION:**
+When you have all information, provide complete summary and ask for confirmation before processing.
+
+IMPORTANT RULES:
+1. Ask questions in the EXACT order specified above
+2. Never ask multiple unrelated questions at once (except where specified)
+3. Wait for user response before proceeding to next question
+4. Always confirm voice input transcription
 5. Be conversational and friendly
-6. Don't overwhelm with all options at once
+6. Don't move to next section until current section is complete
 
 When you have collected enough information to create a complete time entry, format your response to end with:
 
@@ -50,7 +83,7 @@ When you have collected enough information to create a complete time entry, form
 - Energy Impact: [energizing/neutral/draining]
 - Goal: [main objective]"
 
-Keep the conversation natural and ask only what you need to know next.`;
+Keep the conversation natural and follow the exact flow specified.`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
