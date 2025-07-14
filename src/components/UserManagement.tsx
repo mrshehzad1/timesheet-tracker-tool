@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -69,7 +68,7 @@ export function UserManagement() {
       console.error('Error fetching users:', error);
       toast({
         title: "Error",
-        description: "Failed to fetch users",
+        description: "Failed to fetch users. Please try again.",
         variant: "destructive"
       });
     } finally {
@@ -79,15 +78,28 @@ export function UserManagement() {
 
   const handleAddUser = async () => {
     try {
+      // First create the user in Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+        email: formData.email,
+        password: 'temporary123!', // User will need to reset password
+        email_confirm: true
+      });
+
+      if (authError) throw authError;
+
+      // Then add to our users table
       const { error } = await supabase
         .from('users')
-        .insert([formData]);
+        .insert([{
+          ...formData,
+          auth_user_id: authData.user.id
+        }]);
 
       if (error) throw error;
 
       toast({
         title: "Success",
-        description: "User added successfully"
+        description: "User added successfully. They will need to reset their password on first login."
       });
 
       setIsAddDialogOpen(false);
@@ -97,7 +109,7 @@ export function UserManagement() {
       console.error('Error adding user:', error);
       toast({
         title: "Error",
-        description: "Failed to add user",
+        description: "Failed to add user. Please try again.",
         variant: "destructive"
       });
     }
@@ -200,7 +212,7 @@ export function UserManagement() {
             <DialogHeader>
               <DialogTitle>Add New User</DialogTitle>
               <DialogDescription>
-                Create a new user account with specified role and permissions.
+                Create a new user account. A temporary password will be assigned and the user will need to reset it on first login.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -211,6 +223,7 @@ export function UserManagement() {
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="Enter user name"
+                  required
                 />
               </div>
               <div>
@@ -221,6 +234,7 @@ export function UserManagement() {
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   placeholder="Enter email address"
+                  required
                 />
               </div>
               <div>

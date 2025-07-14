@@ -35,11 +35,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(session);
         
         if (session?.user) {
-          await fetchUserProfile(session.user);
+          // Defer the profile fetch to avoid blocking the auth state change
+          setTimeout(() => {
+            fetchUserProfile(session.user);
+          }, 0);
         } else {
           setUser(null);
+          setIsLoading(false);
         }
-        setIsLoading(false);
       }
     );
 
@@ -57,19 +60,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUserProfile = async (authUser: SupabaseUser) => {
     try {
+      console.log('Fetching profile for user:', authUser.email);
+      
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('email', authUser.email)
+        .eq('role', 'admin')
+        .eq('is_active', true)
         .single();
 
       if (error) {
-        console.error('Error fetching user profile:', error);
+        console.error('Error fetching user profile or user is not admin:', error);
+        // If user is not admin or doesn't exist, sign them out
+        await supabase.auth.signOut();
         setUser(null);
+        setIsLoading(false);
         return;
       }
 
       if (data) {
+        console.log('Admin user found:', data);
         setUser({
           id: data.id,
           name: data.name,
@@ -81,7 +92,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error('Error fetching user profile:', error);
+      await supabase.auth.signOut();
       setUser(null);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -89,6 +103,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     
     try {
+      // First check if the user exists and is an admin in our users table
+      const { data: adminUser, error: adminCheckError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .eq('role', 'admin')
+        .eq('is_active', true)
+        .single();
+
+      if (adminCheckError || !adminUser) {
+        console.error('User is not an admin or does not exist:', adminCheckError);
+        setIsLoading(false);
+        return false;
+      }
+
+      // If user is admin, proceed with authentication
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,

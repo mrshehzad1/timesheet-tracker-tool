@@ -16,17 +16,26 @@ export function LoginForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    if (!email || !password) {
+      toast({
+        title: "Missing Information",
+        description: "Please enter both email and password.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const success = await login(email, password);
     
     if (success) {
       toast({
-        title: "Welcome!",
+        title: "Welcome Admin!",
         description: "You've successfully logged in.",
       });
     } else {
       toast({
         title: "Login Failed",
-        description: "Invalid email or password. Try admin@company.com or john@company.com with password 'password'",
+        description: "Invalid credentials or you don't have admin access. Only admin users can log in.",
         variant: "destructive",
       });
     }
@@ -41,7 +50,7 @@ export function LoginForm() {
           </div>
           <CardTitle className="text-2xl font-bold">TimeTracker AI</CardTitle>
           <p className="text-muted-foreground">
-            Conversational time tracking powered by AI
+            Admin Login Only
           </p>
         </CardHeader>
         <CardContent>
@@ -49,7 +58,7 @@ export function LoginForm() {
             <div>
               <Input
                 type="email"
-                placeholder="Email address"
+                placeholder="Admin email address"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -75,15 +84,13 @@ export function LoginForm() {
                   Signing in...
                 </>
               ) : (
-                'Sign In'
+                'Admin Sign In'
               )}
             </Button>
           </form>
           <div className="mt-4 text-sm text-muted-foreground text-center">
-            <p>Demo accounts:</p>
-            <p><strong>Admin:</strong> admin@company.com</p>
-            <p><strong>User:</strong> john@company.com</p>
-            <p><strong>Password:</strong> password</p>
+            <p>Only administrators can access this system</p>
+            <p><strong>Admin Email:</strong> shehzadsc@gmail.com</p>
           </div>
         </CardContent>
       </Card>
