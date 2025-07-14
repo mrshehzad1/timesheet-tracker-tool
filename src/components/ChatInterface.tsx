@@ -1,218 +1,77 @@
 
 import React, { useState, useRef, useEffect } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent } from '@/components/ui/card';
-import { Send, Mic, MicOff, RotateCcw } from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
+import { Mic, MicOff, Send, Bot, User } from 'lucide-react';
 
 interface Message {
   id: string;
-  text: string;
-  sender: 'user' | 'ai';
+  content: string;
+  sender: 'user' | 'assistant';
   timestamp: Date;
 }
 
+interface TimeEntry {
+  task_description: string;
+  duration_minutes: number;
+  start_time: string;
+  work_type: 'billable' | 'non_billable' | 'personal';
+  matter_name: string;
+  cost_centre_name: string;
+  business_area_name: string;
+  subcategory_name: string;
+  enjoyment_level: string;
+  energy_impact: string;
+  task_goal: string;
+}
+
 export function ChatInterface() {
-  const { user } = useAuth();
-  const { config } = useConfig();
   const { toast } = useToast();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { config } = useConfig();
+  const { user } = useAuth();
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: '1',
+      content: `Hi! I'm your AI time tracking assistant. I'll help you log your work activities and categorize them properly. 
+
+Available options:
+• **Matters/Clients**: ${config.matters.join(', ')}
+• **Cost Centres**: ${config.costCentres.join(', ')}
+• **Business Areas**: ${config.businessAreas.join(', ')}
+• **Subcategories**: ${config.subcategories.join(', ')}
+
+Just tell me what you worked on today!`,
+      sender: 'assistant',
+      timestamp: new Date()
+    }
+  ]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isListening, setIsListening] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-
-  // Load messages from localStorage on component mount
-  useEffect(() => {
-    const savedMessages = localStorage.getItem('chatMessages');
-    if (savedMessages) {
-      try {
-        const parsedMessages = JSON.parse(savedMessages).map((msg: any) => ({
-          ...msg,
-          timestamp: new Date(msg.timestamp)
-        }));
-        setMessages(parsedMessages);
-      } catch (error) {
-        console.error('Error parsing saved messages:', error);
-      }
-    }
-  }, []);
-
-  // Save messages to localStorage whenever messages change
-  useEffect(() => {
-    if (messages.length > 0) {
-      localStorage.setItem('chatMessages', JSON.stringify(messages));
-    }
-  }, [messages]);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  useEffect(() => {
-    // Initialize speech recognition
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      recognitionRef.current.lang = 'en-US';
-
-      recognitionRef.current.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        setInputValue(transcript);
-        setIsListening(false);
-      };
-
-      recognitionRef.current.onerror = () => {
-        setIsListening(false);
-        toast({
-          title: "Speech Recognition Error",
-          description: "Could not recognize speech. Please try again.",
-          variant: "destructive",
-        });
-      };
-
-      recognitionRef.current.onend = () => {
-        setIsListening(false);
-      };
-    }
-  }, [toast]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const startListening = () => {
-    if (recognitionRef.current && !isListening) {
-      setIsListening(true);
-      recognitionRef.current.start();
-    }
-  };
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
-  const stopListening = () => {
-    if (recognitionRef.current && isListening) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-    }
-  };
-
-  const startNewChat = () => {
-    setMessages([]);
-    localStorage.removeItem('chatMessages');
-    toast({
-      title: "New Chat Started",
-      description: "Previous conversation has been cleared.",
-    });
-  };
-
-  const extractTimeEntryData = (conversation: Message[]) => {
-    const conversationText = conversation.map(msg => `${msg.sender}: ${msg.text}`).join('\n');
-    
-    console.log('Extracting data from conversation:', conversationText);
-    
-    // Enhanced extraction logic with multiple patterns
-    const extractors = {
-      duration: [
-        /(?:spent|took|worked for|duration.*?)\s*(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)/i,
-        /(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)\s*(?:on|working|spent)/i,
-        /(\d+)\s*minutes?/i
-      ],
-      task: [
-        /(?:worked on|task was|doing|completed)\s*[:\-]?\s*([^.!?\n]+)/i,
-        /task[:\-]?\s*([^.!?\n]+)/i,
-        /(?:I|we)\s+([^.!?\n]*(?:meeting|call|review|analysis|development|coding|design)[^.!?\n]*)/i
-      ],
-      workType: [
-        /(?:this (?:was|is)|work (?:was|is))\s*(billable|non-billable|personal)/i,
-        /(billable|non-billable|personal)\s*(?:work|task|time)/i
-      ],
-      matter: [
-        /(?:matter|client|project)[:\-]?\s*([^.!?\n]+)/i,
-        /(?:for|on)\s+([A-Z][^.!?\n]*(?:project|client|matter)[^.!?\n]*)/i
-      ],
-      costCentre: [
-        /(?:cost centre|cost center|department)[:\-]?\s*([^.!?\n]+)/i
-      ],
-      businessArea: [
-        /(?:business area|area)[:\-]?\s*([^.!?\n]+)/i
-      ],
-      subcategory: [
-        /(?:subcategory|category)[:\-]?\s*([^.!?\n]+)/i
-      ],
-      enjoyment: [
-        /(?:enjoyed|enjoyment|liked|loved|hated|disliked)[:\-]?\s*([^.!?\n]+)/i,
-        /(?:it was|felt)\s*(great|good|okay|bad|terrible|amazing|awful)/i
-      ],
-      energy: [
-        /(?:energy|tired|energized|drained|exhausted)[:\-]?\s*([^.!?\n]+)/i,
-        /(?:felt|feeling)\s*(energized|tired|drained|exhausted|refreshed)/i
-      ],
-      taskGoal: [
-        /(?:goal|future|delegate|retain)[:\-]?\s*([^.!?\n]+)/i
-      ]
-    };
-
-    const extractedData: any = {};
-
-    // Extract duration (convert to minutes if needed)
-    for (const pattern of extractors.duration) {
-      const match = conversationText.match(pattern);
-      if (match) {
-        let duration = parseFloat(match[1]);
-        if (pattern.source.includes('hours')) {
-          duration *= 60; // Convert hours to minutes
-        }
-        extractedData.duration_minutes = Math.round(duration);
-        break;
-      }
-    }
-
-    // Extract other fields
-    Object.entries(extractors).forEach(([key, patterns]) => {
-      if (key === 'duration') return; // Already handled above
-      
-      for (const pattern of patterns) {
-        const match = conversationText.match(pattern);
-        if (match && match[1]) {
-          extractedData[key] = match[1].trim();
-          break;
-        }
-      }
-    });
-
-    // Set defaults for missing data, using actual config data
-    return {
-      task_description: extractedData.task || 'General work',
-      duration_minutes: extractedData.duration_minutes || 30,
-      work_type: extractedData.workType || 'billable',
-      matter_name: extractedData.matter || config.matters[0] || 'General',
-      cost_centre_name: extractedData.costCentre || config.costCentres[0] || 'Development',
-      business_area_name: extractedData.businessArea || config.businessAreas[0] || 'Software Development',
-      subcategory_name: extractedData.subcategory || config.subcategories[0] || 'General Work',
-      enjoyment_level: extractedData.enjoyment || 'neutral',
-      energy_impact: extractedData.energy || 'neutral',
-      task_goal: extractedData.taskGoal || 'retain',
-      timestamp: new Date().toISOString(),
-      is_estimate: false
-    };
-  };
-
-  const sendWebhook = async (timeEntryData: any) => {
+  const sendWebhook = async (timeEntry: TimeEntry) => {
     try {
-      console.log('Attempting to send webhook with data:', timeEntryData);
-      
-      // Fetch webhook configuration from database
+      // Fetch webhook configuration
       const { data: webhookConfig, error } = await supabase
         .from('webhook_config')
         .select('*')
         .eq('is_enabled', true)
-        .limit(1)
         .maybeSingle();
 
       if (error) {
@@ -221,21 +80,16 @@ export function ChatInterface() {
       }
 
       if (!webhookConfig || !webhookConfig.url) {
-        console.log('No active webhook configuration found');
+        console.log('No webhook configured');
         return;
       }
 
-      console.log('Using webhook config:', { url: webhookConfig.url, enabled: webhookConfig.is_enabled });
-
       const webhookPayload = {
-        user_id: user?.id || 'anonymous',
-        user_name: user?.name || 'Anonymous User',
-        user_email: user?.email || 'anonymous@example.com',
+        user_id: user?.id,
+        user_name: user?.name,
+        user_email: user?.email,
         timestamp: new Date().toISOString(),
-        time_entry: {
-          ...timeEntryData,
-          start_time: new Date(Date.now() - (timeEntryData.duration_minutes * 60 * 1000)).toISOString()
-        }
+        time_entry: timeEntry
       };
 
       console.log('Sending webhook payload:', webhookPayload);
@@ -254,35 +108,28 @@ export function ChatInterface() {
         body: JSON.stringify(webhookPayload)
       });
 
-      console.log('Webhook response status:', response.status);
-      
       if (response.ok) {
         console.log('Webhook sent successfully');
         toast({
-          title: "Time Entry Recorded",
-          description: "Your time entry has been sent to the external system.",
+          title: "Data Sent",
+          description: "Time entry data has been sent to your configured webhook.",
         });
       } else {
-        console.error('Webhook failed with status:', response.status);
-        const errorText = await response.text();
-        console.error('Webhook error response:', errorText);
+        console.error('Webhook failed:', response.status, response.statusText);
+        toast({
+          title: "Webhook Error",
+          description: "Failed to send data to webhook endpoint.",
+          variant: "destructive"
+        });
       }
     } catch (error) {
       console.error('Error sending webhook:', error);
+      toast({
+        title: "Webhook Error",
+        description: "Failed to send data to webhook endpoint.",
+        variant: "destructive"
+      });
     }
-  };
-
-  const detectTaskCompletion = (messages: Message[]) => {
-    const lastFewMessages = messages.slice(-3);
-    const conversationText = lastFewMessages.map(msg => msg.text.toLowerCase()).join(' ');
-    
-    const completionIndicators = [
-      'that completes', 'finished', 'done', 'completed', 'wrapped up',
-      'that concludes', 'end of session', 'logging this time', 'record this time',
-      'save this entry', 'submit this', 'log the time', 'time entry complete'
-    ];
-    
-    return completionIndicators.some(indicator => conversationText.includes(indicator));
   };
 
   const sendMessage = async () => {
@@ -290,73 +137,128 @@ export function ChatInterface() {
 
     const userMessage: Message = {
       id: Date.now().toString(),
-      text: inputValue,
+      content: inputValue,
       sender: 'user',
-      timestamp: new Date(),
+      timestamp: new Date()
     };
 
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
+    setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsLoading(true);
 
     try {
-      console.log('Sending message to chat-completion function:', {
-        message: inputValue,
-        conversationHistoryLength: newMessages.slice(-10).length,
-        config: config
-      });
-
       const { data, error } = await supabase.functions.invoke('chat-completion', {
-        body: { 
+        body: {
           message: inputValue,
-          conversationHistory: newMessages.slice(-10).map(msg => ({
-            role: msg.sender === 'user' ? 'user' : 'assistant',
-            content: msg.text
-          })),
-          config: config
+          context: {
+            matters: config.matters,
+            costCentres: config.costCentres,
+            businessAreas: config.businessAreas,
+            subcategories: config.subcategories,
+            user: user
+          }
         }
       });
 
-      if (error) {
-        console.error('Supabase function error:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      console.log('Received response from chat-completion function:', data);
-
-      const aiMessage: Message = {
+      const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: data.response || 'I apologize, but I encountered an error processing your request.',
-        sender: 'ai',
-        timestamp: new Date(),
+        content: data.response,
+        sender: 'assistant',
+        timestamp: new Date()
       };
 
-      const finalMessages = [...newMessages, aiMessage];
-      setMessages(finalMessages);
+      setMessages(prev => [...prev, assistantMessage]);
 
-      // Check if this looks like a task completion
-      if (detectTaskCompletion(finalMessages)) {
-        console.log('Task completion detected, extracting time entry data');
-        const timeEntryData = extractTimeEntryData(finalMessages);
-        console.log('Extracted time entry data:', timeEntryData);
-        await sendWebhook(timeEntryData);
+      // Check if the response contains time entry data and send webhook
+      if (data.timeEntry) {
+        console.log('Time entry detected:', data.timeEntry);
+        await sendWebhook(data.timeEntry);
       }
 
     } catch (error) {
       console.error('Error sending message:', error);
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: 'I apologize, but I encountered an error. Please try again.',
-        sender: 'ai',
-        timestamp: new Date(),
+        content: 'Sorry, I encountered an error processing your request. Please try again.',
+        sender: 'assistant',
+        timestamp: new Date()
       };
-      setMessages([...newMessages, errorMessage]);
+      setMessages(prev => [...prev, errorMessage]);
       
       toast({
         title: "Error",
         description: "Failed to send message. Please try again.",
-        variant: "destructive",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const audioChunks: Blob[] = [];
+
+      recorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+        await processAudioInput(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+    } catch (error) {
+      console.error('Error starting recording:', error);
+      toast({
+        title: "Recording Error",
+        description: "Could not access microphone. Please check permissions.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      setMediaRecorder(null);
+      setIsRecording(false);
+    }
+  };
+
+  const processAudioInput = async (audioBlob: Blob) => {
+    setIsLoading(true);
+    
+    try {
+      // Convert audio to text using speech recognition API or send to backend
+      // For now, we'll show a placeholder message
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        content: "Voice message received (processing...)",
+        sender: 'user',
+        timestamp: new Date()
+      };
+
+      setMessages(prev => [...prev, userMessage]);
+      
+      toast({
+        title: "Voice Processing",
+        description: "Voice message received. Text processing is not yet implemented.",
+      });
+    } catch (error) {
+      console.error('Error processing audio:', error);
+      toast({
+        title: "Processing Error",
+        description: "Failed to process voice input.",
+        variant: "destructive"
       });
     } finally {
       setIsLoading(false);
@@ -371,99 +273,87 @@ export function ChatInterface() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-120px)] max-w-4xl mx-auto p-4">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-2xl font-bold">TimeTracker AI Assistant</h2>
-          <p className="text-muted-foreground">
-            Track your time by describing your work activities naturally
-          </p>
-        </div>
-        <Button 
-          variant="outline" 
-          onClick={startNewChat}
-          className="flex items-center gap-2"
-        >
-          <RotateCcw className="w-4 h-4" />
-          New Chat
-        </Button>
-      </div>
-
-      <Card className="flex-1 flex flex-col">
-        <CardContent className="flex-1 overflow-auto p-4">
+    <Card className="w-full max-w-4xl mx-auto h-[600px] flex flex-col">
+      <CardContent className="flex-1 flex flex-col p-4">
+        <ScrollArea className="flex-1 pr-4">
           <div className="space-y-4">
-            {messages.length === 0 && (
-              <div className="text-center text-muted-foreground py-8">
-                <h3 className="text-lg font-medium mb-2">Welcome to TimeTracker AI!</h3>
-                <p>Start by describing what you've been working on today.</p>
-                <p className="text-sm mt-2">
-                  Example: "I spent 2 hours working on the client presentation for Project Alpha"
-                </p>
-              </div>
-            )}
-            
             {messages.map((message) => (
               <div
                 key={message.id}
-                className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                className={`flex ${
+                  message.sender === 'user' ? 'justify-end' : 'justify-start'
+                }`}
               >
                 <div
-                  className={`max-w-[80%] p-3 rounded-lg ${
-                    message.sender === 'user'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted'
+                  className={`flex items-start space-x-2 max-w-[80%] ${
+                    message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''
                   }`}
                 >
-                  <p className="whitespace-pre-wrap">{message.text}</p>
-                  <p className="text-xs opacity-70 mt-1">
-                    {message.timestamp.toLocaleTimeString()}
-                  </p>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                    message.sender === 'user' 
+                      ? 'bg-blue-500 text-white' 
+                      : 'bg-gray-200 text-gray-600'
+                  }`}>
+                    {message.sender === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+                  </div>
+                  <div
+                    className={`rounded-lg px-4 py-2 ${
+                      message.sender === 'user'
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-gray-100 text-gray-900'
+                    }`}
+                  >
+                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    <p className="text-xs opacity-70 mt-1">
+                      {message.timestamp.toLocaleTimeString()}
+                    </p>
+                  </div>
                 </div>
               </div>
             ))}
-            
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-muted p-3 rounded-lg">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-2 h-2 bg-current rounded-full animate-bounce"></div>
-                    <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                    <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                <div className="flex items-start space-x-2 max-w-[80%]">
+                  <div className="w-8 h-8 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center">
+                    <Bot className="w-4 h-4" />
+                  </div>
+                  <div className="bg-gray-100 rounded-lg px-4 py-2">
+                    <p className="text-sm text-gray-900">Thinking...</p>
                   </div>
                 </div>
               </div>
             )}
-            <div ref={messagesEndRef} />
           </div>
-        </CardContent>
-        
-        <div className="p-4 border-t">
-          <div className="flex space-x-2">
-            <Input
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Describe your work activity..."
-              disabled={isLoading}
-              className="flex-1"
-            />
-            
-            <Button
-              onClick={isListening ? stopListening : startListening}
-              variant="outline"
-              size="icon"
-              disabled={isLoading}
-              className={isListening ? 'bg-red-100 hover:bg-red-200' : ''}
-            >
-              {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-            </Button>
-            
-            <Button onClick={sendMessage} disabled={isLoading || !inputValue.trim()}>
-              <Send className="h-4 w-4" />
-            </Button>
-          </div>
+          <div ref={messagesEndRef} />
+        </ScrollArea>
+
+        <div className="flex items-center space-x-2 mt-4">
+          <Input
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder="Tell me about your work activities..."
+            disabled={isLoading}
+            className="flex-1"
+          />
+          <Button
+            onClick={isRecording ? stopRecording : startRecording}
+            variant={isRecording ? "destructive" : "outline"}
+            size="sm"
+            className="shrink-0"
+          >
+            {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+          </Button>
+          <Button 
+            onClick={sendMessage} 
+            disabled={isLoading || !inputValue.trim()}
+            size="sm"
+            className="shrink-0"
+          >
+            <Send className="w-4 h-4" />
+          </Button>
         </div>
-      </Card>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

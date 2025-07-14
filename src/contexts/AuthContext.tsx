@@ -1,5 +1,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 
 export interface User {
   id: string;
@@ -15,67 +17,109 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   isLoading: boolean;
+  session: Session | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Mock users for demo purposes
-const mockUsers: User[] = [
-  {
-    id: '1',
-    name: 'Admin User',
-    email: 'admin@company.com',
-    role: 'admin',
-    createdAt: '2024-01-01T00:00:00Z',
-    isActive: true
-  },
-  {
-    id: '2',
-    name: 'John Doe',
-    email: 'john@company.com',
-    role: 'user',
-    createdAt: '2024-01-01T00:00:00Z',
-    isActive: true
-  }
-];
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check for stored auth
-    const storedUser = localStorage.getItem('timeTracker_user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-    setIsLoading(false);
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth state change:', event, session?.user?.email);
+        setSession(session);
+        
+        if (session?.user) {
+          await fetchUserProfile(session.user);
+        } else {
+          setUser(null);
+        }
+        setIsLoading(false);
+      }
+    );
+
+    // Check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        fetchUserProfile(session.user);
+      } else {
+        setIsLoading(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
+
+  const fetchUserProfile = async (authUser: SupabaseUser) => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', authUser.email)
+        .single();
+
+      if (error) {
+        console.error('Error fetching user profile:', error);
+        setUser(null);
+        return;
+      }
+
+      if (data) {
+        setUser({
+          id: data.id,
+          name: data.name,
+          email: data.email,
+          role: data.role as 'admin' | 'user',
+          createdAt: data.created_at,
+          isActive: data.is_active
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      setUser(null);
+    }
+  };
 
   const login = async (email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
     
-    // Mock authentication
-    const foundUser = mockUsers.find(u => u.email === email && u.isActive);
-    
-    if (foundUser && password === 'password') {
-      setUser(foundUser);
-      localStorage.setItem('timeTracker_user', JSON.stringify(foundUser));
-      setIsLoading(false);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        console.error('Login error:', error);
+        setIsLoading(false);
+        return false;
+      }
+
+      if (data.user) {
+        await fetchUserProfile(data.user);
+      }
+      
       return true;
+    } catch (error) {
+      console.error('Login error:', error);
+      setIsLoading(false);
+      return false;
     }
-    
-    setIsLoading(false);
-    return false;
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
-    localStorage.removeItem('timeTracker_user');
+    setSession(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, logout, isLoading, session }}>
       {children}
     </AuthContext.Provider>
   );
