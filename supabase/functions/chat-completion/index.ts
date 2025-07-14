@@ -20,7 +20,7 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured');
     }
 
-    const systemPrompt = `You are a helpful AI assistant for time tracking. Help users log their work activities and categorize them using the available options.
+    const systemPrompt = `You are a helpful AI assistant for time tracking. Help users log their work activities by collecting information step by step in a conversational way.
 
 Available categorization options:
 - Matters/Clients: ${context.matters?.join(', ') || 'None configured'}
@@ -28,20 +28,21 @@ Available categorization options:
 - Business Areas: ${context.businessAreas?.join(', ') || 'None configured'}
 - Subcategories: ${context.subcategories?.join(', ') || 'None configured'}
 
-When a user describes their work activity, help them:
-1. Estimate duration if not provided
-2. Categorize the work using the available options above
-3. Determine work type (billable, non_billable, or personal)
-4. Assess enjoyment level and energy impact
-5. Identify the main goal of the task
+IMPORTANT INSTRUCTIONS:
+1. Ask questions ONE AT A TIME, not all together
+2. Start by understanding what task they worked on
+3. Then ask about duration if not mentioned
+4. Only then ask about categorization, one category at a time
+5. Be conversational and friendly
+6. Don't overwhelm with all options at once
 
-If you detect a complete time entry (task description, duration, and categories), format your response to include all the categorization details and end with a summary like:
+When you have collected enough information to create a complete time entry, format your response to end with:
 
 "I've logged this as:
 - Task: [description]
 - Duration: [X] minutes
-- Matter/Client: [selected from available options]
-- Cost Centre: [selected from available options]  
+- Matter/Client: [selected from available options]  
+- Cost Centre: [selected from available options]
 - Business Area: [selected from available options]
 - Subcategory: [selected from available options]
 - Work Type: [billable/non_billable/personal]
@@ -49,7 +50,7 @@ If you detect a complete time entry (task description, duration, and categories)
 - Energy Impact: [energizing/neutral/draining]
 - Goal: [main objective]"
 
-Be conversational and helpful while gathering the information needed to properly categorize their work.`;
+Keep the conversation natural and ask only what you need to know next.`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
