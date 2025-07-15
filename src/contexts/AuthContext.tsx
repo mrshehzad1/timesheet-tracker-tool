@@ -103,22 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     
     try {
-      // First check if the user exists and is an admin in our users table
-      const { data: adminUser, error: adminCheckError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('email', email)
-        .eq('role', 'admin')
-        .eq('is_active', true)
-        .single();
-
-      if (adminCheckError || !adminUser) {
-        console.error('User is not an admin or does not exist:', adminCheckError);
-        setIsLoading(false);
-        return false;
-      }
-
-      // If user is admin, proceed with authentication
+      // First, attempt to sign in with Supabase Auth
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -131,10 +116,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (data.user) {
-        await fetchUserProfile(data.user);
+        // After successful authentication, check if user is admin
+        const { data: adminUser, error: adminCheckError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', email)
+          .eq('role', 'admin')
+          .eq('is_active', true)
+          .single();
+
+        if (adminCheckError || !adminUser) {
+          console.error('User is not an admin or does not exist:', adminCheckError);
+          // Sign out the user since they're not admin
+          await supabase.auth.signOut();
+          setIsLoading(false);
+          return false;
+        }
+
+        // User is authenticated and is admin, profile will be set by auth state change
+        return true;
       }
       
-      return true;
+      setIsLoading(false);
+      return false;
     } catch (error) {
       console.error('Login error:', error);
       setIsLoading(false);
