@@ -140,9 +140,16 @@ What did you work on today? Just tell me about any task, and I'll help you categ
     setIsLoading(true);
 
     try {
+      // Send conversation history (excluding the initial greeting) to maintain context
+      const conversationHistory = messages.filter(msg => msg.id !== '1').map(msg => ({
+        content: msg.content,
+        sender: msg.sender
+      }));
+
       const { data, error } = await supabase.functions.invoke('chat-completion', {
         body: {
           message: inputValue,
+          conversationHistory: conversationHistory,
           context: {
             matters: config.matters,
             costCentres: config.costCentres,

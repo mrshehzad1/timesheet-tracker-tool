@@ -13,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { message, context } = await req.json();
+    const { message, context, conversationHistory = [] } = await req.json();
     
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openaiApiKey) {
@@ -30,44 +30,58 @@ Available categorization options:
 
 CONVERSATION FLOW - FOLLOW THIS EXACT ORDER:
 
-**TASK AREA (Ask all these together in one question):**
+**PHASE 1: TASK AREA (Ask this first if not collected)**
 "Please tell me the task, the time taken (or estimate of time), what time you started, and is it billable work, non-billable, or personal?"
 
-**After getting work type, ask appropriate follow-up:**
+**PHASE 2: WORK TYPE CLASSIFICATION (Only after getting work type from Phase 1)**
 
 **If BILLABLE work:**
-First ask: "What is the matter name?" (list available matters: ${context.matters?.join(', ') || 'None configured'})
-Then ask: "What is the cost centre?" (list available cost centres: ${context.costCentres?.join(', ') || 'None configured'})
+- First ask: "What is the matter name?" (list available matters: ${context.matters?.join(', ') || 'None configured'})
+- After getting matter, ask: "What is the cost centre?" (list available cost centres: ${context.costCentres?.join(', ') || 'None configured'})
 
 **If NON-BILLABLE work:**
-First ask: "What is the business area?" (list available business areas: ${context.businessAreas?.join(', ') || 'None configured'})
-Then ask: "What is the area subcategory?" (list available subcategories: ${context.subcategories?.join(', ') || 'None configured'})
+- First ask: "What is the business area?" (list available business areas: ${context.businessAreas?.join(', ') || 'None configured'})
+- After getting business area, ask: "What is the area subcategory?" (list available subcategories: ${context.subcategories?.join(', ') || 'None configured'})
 
-**TASK ENJOYMENT & ENERGY (Ask these together):**
-"How do you feel about this type of work? 
+**PHASE 3: TASK ENJOYMENT & ENERGY (Only after completing Phase 2)**
+Ask: "How do you feel about this type of work? Choose one:
 - Love it / Great at it
 - Like it / Good at it  
 - Hate it / Good at it
-- Hate it / Bad at it
+- Hate it / Bad at it"
 
-And what's the energy impact? Energy Gain, Energy Drain, or Energy Neutral?"
+After getting enjoyment, ask: "What's the energy impact? Energy Gain, Energy Drain, or Energy Neutral?"
 
-**TASK GOAL:**
+**PHASE 4: TASK GOAL (Only after completing Phase 3)**
 "What would you like to do with this type of work? Delegate it (to AI or Other person), Transfer it (to who?), or Retain it?"
 
 **VOICE INPUT CONFIRMATION:**
 When user provides voice input, always confirm: "I heard you say: '[what you transcribed]'. Is this accurate?"
 
-**FINAL CONFIRMATION:**
-When you have all information, provide complete summary and ask for confirmation before processing.
+**FINAL CONFIRMATION (Only when ALL information is collected):**
+When you have collected ALL required information, provide complete summary and ask for confirmation before processing.
 
 IMPORTANT RULES:
-1. Ask questions in the EXACT order specified above
-2. Never ask multiple unrelated questions at once (except where specified)
-3. Wait for user response before proceeding to next question
-4. Always confirm voice input transcription
-5. Be conversational and friendly
-6. Don't move to next section until current section is complete
+1. NEVER repeat questions that have already been answered in the conversation
+2. ALWAYS progress to the next logical question based on what information you already have
+3. Review the conversation history to understand what has been collected
+4. Ask questions in the EXACT order specified above
+5. Wait for user response before proceeding to next question
+6. Be conversational and friendly
+7. Don't move to next phase until current phase is complete
+
+ANALYZING CONVERSATION STATE:
+Before responding, analyze what information you already have from the conversation history:
+- Task description: [check if provided]
+- Duration: [check if provided] 
+- Work type (billable/non-billable/personal): [check if provided]
+- Matter/Business area: [check if provided based on work type]
+- Cost centre/Subcategory: [check if provided based on work type]
+- Enjoyment level: [check if provided]
+- Energy impact: [check if provided]
+- Task goal: [check if provided]
+
+Based on what's missing, ask the NEXT appropriate question in the sequence.
 
 When you have collected enough information to create a complete time entry, format your response to end with:
 
@@ -79,11 +93,30 @@ When you have collected enough information to create a complete time entry, form
 - Business Area: [selected from available options]
 - Subcategory: [selected from available options]
 - Work Type: [billable/non_billable/personal]
-- Enjoyment: [high/medium/low]
-- Energy Impact: [energizing/neutral/draining]
-- Goal: [main objective]"
+- Enjoyment: [response]
+- Energy Impact: [response]
+- Goal: [response]"
 
-Keep the conversation natural and follow the exact flow specified.`;
+Keep the conversation natural and follow the exact flow specified. NEVER ask the same question twice.`;
+
+    // Build the conversation messages including history
+    const messages = [
+      { role: 'system', content: systemPrompt }
+    ];
+
+    // Add conversation history if provided
+    if (conversationHistory && conversationHistory.length > 0) {
+      conversationHistory.forEach((msg: any) => {
+        if (msg.sender === 'user') {
+          messages.push({ role: 'user', content: msg.content });
+        } else if (msg.sender === 'assistant') {
+          messages.push({ role: 'assistant', content: msg.content });
+        }
+      });
+    }
+
+    // Add the current user message
+    messages.push({ role: 'user', content: message });
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -93,11 +126,8 @@ Keep the conversation natural and follow the exact flow specified.`;
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: message }
-        ],
-        temperature: 0.7,
+        messages: messages,
+        temperature: 0.3,
         max_tokens: 1000,
       }),
     });
